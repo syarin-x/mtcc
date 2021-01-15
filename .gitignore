@@ -1,0 +1,4 @@
+mtcc
+bin/*~
+bin/tmp*
+a.out
