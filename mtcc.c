@@ -25,6 +25,9 @@ struct Token {
 // 現在着目しているトークン
 Token*  token;
 
+// 入力のバックアップ
+char*   user_input;
+
 
 // ----------------------------------------
 // utility func
@@ -39,6 +42,18 @@ void error(char *fmt, ...){
     exit(1);
 }
 
+void error_at(char* loc, char* fmt, ...){
+    va_list ap;
+    va_start(ap, fmt);
+
+    int pos = loc - user_input;
+    fprintf(stderr, "%s\n", user_input);
+    fprintf(stderr, "%*s", pos, "");
+    fprintf(stderr, "^ ");
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    exit(1);
+}
 // ----------------------------------------
 // token func
 // ----------------------------------------
@@ -58,7 +73,7 @@ bool tk_consume(char op){
 // 予想外ならエラーにする。
 void tk_expect(char op) {
     if (token->kind != TK_RESERVED || token->str[0] != op)
-        error("[error!] Next Character is not expected ! [%d]", op);
+        error_at(token->str, "[error!] Next Character is not expected ! [%d]", op);
     
     token = token->next;
 }
@@ -67,7 +82,7 @@ void tk_expect(char op) {
 // 値ももらう
 int tk_expect_number() {
     if (token->kind != TK_NUM)
-        error("[error] This is not a number.");
+        error_at(token->str, "[error] This is not a number.");
     
     int val = token->val;
     token = token->next;
@@ -89,7 +104,9 @@ Token* tk_new_token(TokenKind kind, Token *cur, char *str){
     return tok;
 }
 
-Token*  tk_tokenize(char* p){
+Token*  tk_tokenize(){
+    char* p = user_input;
+
     Token head;
     head.next = NULL;
     Token*  cur = &head;
@@ -112,7 +129,7 @@ Token*  tk_tokenize(char* p){
             continue;
         }
 
-        error("[error!] Can not tokenize.");
+        error_at(p, "[error!] Can not tokenize.");
     }
 
     tk_new_token(TK_EOF, cur, p);
@@ -125,8 +142,10 @@ int main(int argc, char **argv){
         return 1;
     }
 
+    user_input = argv[1];
+
     // トーカナイズする
-    token = tk_tokenize(argv[1]);
+    token = tk_tokenize();
 
     // アセンブリの前半部分
     printf(".intel_syntax noprefix\n");
