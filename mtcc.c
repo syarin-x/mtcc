@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// ----------------------------------------
+// definition
+// ----------------------------------------
 // token type
 typedef enum {
     TK_RESERVED,    // 記号
@@ -22,9 +25,26 @@ struct Token {
     char*       str;    // トークン文字列
 };
 
+
+typedef enum {
+    ND_ADD,
+    ND_SUB,
+    ND_MUL,
+    ND_DIV,
+    ND_NUM,
+} NodeKind;
+
+typedef struct Node Node;
+
+struct Node {
+    NodeKind    kind;
+    Node*       lhs;
+    Node*       rhs;
+    int         val;
+};
+
 // 現在着目しているトークン
 Token*  token;
-
 // 入力のバックアップ
 char*   user_input;
 
@@ -118,7 +138,7 @@ Token*  tk_tokenize(){
             continue;
         }
 
-        if (*p == '+' || *p == '-'){
+        if (strchr("+-*/()", *p)){
             cur = tk_new_token(TK_RESERVED, cur, p++);
             continue;
         }
@@ -136,6 +156,120 @@ Token*  tk_tokenize(){
     return head.next;
 }
 
+// ----------------------------------------
+// parse func
+// ----------------------------------------
+Node* new_node(NodeKind kind){
+    Node* node =calloc(1, sizeof(Node));
+    node->kind = kind;
+    return node;
+}
+
+Node* new_binary(NodeKind kind, Node* lhs, Node* rhs){
+    Node* node = new_node(kind);
+    node->lhs = lhs;
+    node->rhs = rhs;
+    return node;
+}
+
+Node* new_node_num(int val){
+    Node* node = new_node(ND_NUM);
+    node->val = val;
+    return node;
+}
+
+
+Node* expr();
+Node* mul();
+Node* unary();
+Node* primary();
+
+// expr = mul ("+" mul | "-" mul)
+Node* expr() {
+    Node* node = mul();
+
+    for(;;){
+        if(tk_consume('+'))
+            node = new_binary(ND_ADD, node, mul());
+        else if(tk_consume('-'))
+            node = new_binary(ND_SUB, node, mul());
+        else
+            return node;
+    }
+}
+
+// mul = unary ("*" unary | "/" unary)
+Node* mul() {
+    Node* node = unary();
+
+    for(;;){
+        if (tk_consume('*'))
+            node = new_binary(ND_MUL, node, unary());
+        else if (tk_consume('/'))
+            node = new_binary(ND_DIV, node, unary());
+        else
+            return node;
+    }
+}
+
+// unary = ("+" | "-")? primary
+Node* unary() {
+    if(tk_consume('+'))
+        return unary();
+
+    if(tk_consume('-'))
+        return new_binary(ND_SUB, new_node_num(0), unary());
+
+    return primary();
+}
+
+Node* primary() {
+    if(tk_consume('(')) {
+        Node* node = expr();
+        tk_expect(')');
+        return node;
+    }
+
+    return new_node_num(tk_expect_number());
+}
+
+
+
+// ----------------------------------------
+// main func
+// ----------------------------------------
+void gen(Node* node) {
+    if(node->kind == ND_NUM){
+        printf("    push %d\n", node->val);
+        return;
+    }
+
+    gen(node->lhs);
+    gen(node->rhs);
+
+    printf("    pop rdi\n");
+    printf("    pop rax\n");
+
+    switch(node->kind){
+        case ND_ADD:
+            printf("    add rax, rdi\n");
+            break;
+        case ND_SUB:
+            printf("    sub rax, rdi\n");
+            break;
+        case ND_MUL:
+            printf("    imul rax, rdi\n");
+            break;
+        case ND_DIV:
+            printf("    cqo\n");
+            printf("    idiv rdi\n");
+            break;
+    }
+
+    printf("    push rax\n");
+}
+
+
 int main(int argc, char **argv){
     if(argc != 2){
         fprintf(stderr, "[error!] invalid args nums.");
@@ -143,28 +277,17 @@ int main(int argc, char **argv){
     }
 
     user_input = argv[1];
-
-    // トーカナイズする
     token = tk_tokenize();
+    Node* node = expr();
 
     // アセンブリの前半部分
     printf(".intel_syntax noprefix\n");
     printf(".global main\n");
     printf("main:\n");
 
-    // 式の最初
-    printf("    mov rax, %d\n", tk_expect_number());
-
-    while(!tk_at_eof()){
-        if(tk_consume('+')){
-            printf("    add rax, %d\n", tk_expect_number());
-            continue;
-        }
-
-        tk_expect('-');
-        printf("    sub rax, %d\n", tk_expect_number());
-    }
-
+    gen(node);
+    
+    printf("    pop rax\n");
     printf("    ret\n");
     return 0;
 }
